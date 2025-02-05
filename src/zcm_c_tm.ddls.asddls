@@ -19,7 +19,7 @@ define view entity ZCM_C_TM
             a.Referencechipid,
             //    a.Url,
             a.SemObj,
-            a.SemAct
+            a.SemAct,
             //    ,
             //    AppType,
             //    WdApplId,
@@ -40,10 +40,6 @@ define view entity ZCM_C_TM
             //    ShortGuid,
             //    UrltId,
             //    UrltParameters,
-  ,
-            Catal.Catal,
-            @ObjectModel: {readOnly: true,
-                       virtualElement: true,
-                       virtualElementCalculatedBy: 'ABAP:ZCL_CREATE_CATAL'}
-            cast('' as abap.char( 255 )) as Test
+            a.TargetId,
+            Catal.Catal
 }

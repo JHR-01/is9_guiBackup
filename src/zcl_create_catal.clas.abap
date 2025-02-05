@@ -17,49 +17,132 @@ CLASS ZCL_CREATE_CATAL IMPLEMENTATION.
 
     CHECK NOT IT_ORIGINAL_DATA IS INITIAL.
 
-*    DATA: LT_PROCESSDATA TYPE TABLE OF ZCM_I_CATALOG WITH DEFAULT KEY,
-**          LT_SPLIT       TYPE TABLE OF ZCM_I_CATALOG-Catal.
-*          LS_SPLIT_01    TYPE ZCM_I_CATALOG-URL,
-*          LS_SPLIT_02    TYPE ZCM_I_CATALOG-URL.
+    DATA: LT_PROCESSDATA TYPE TABLE OF ZCM_C_CHIP WITH DEFAULT KEY,
+          LV_RESULTCHIP  TYPE ZCM_C_CHIP-ChipConf,
+          LV_JSON        TYPE JSON_STRING.
+
+    TYPES: BEGIN OF TY_MAIN_STRUCTURE,
+             TILECONFIGURATION TYPE STRING, " JSON 데이터가 STRING 형태로 저장됨
+           END OF TY_MAIN_STRUCTURE.
+    DATA : LS_TILECONF TYPE TY_MAIN_STRUCTURE.
+
+**********************************************************************
+*-- JSON 데이터 받을 ABAP 타입 선언
+    TYPES: BEGIN OF TY_DEFAULT_VALUE,
+             VALUE  TYPE STRING,
+             FORMAT TYPE STRING,
+           END OF TY_DEFAULT_VALUE.
+
+    TYPES: BEGIN OF TY_PARAMETER,
+             REQUIRED     TYPE ABAP_BOOL,
+             RENAME_TO    TYPE STRING,
+             DEFAULTVALUE TYPE TY_DEFAULT_VALUE,
+             FILTER       TYPE TY_DEFAULT_VALUE,
+           END OF TY_PARAMETER.
+
+    TYPES: TY_PARAMETERS TYPE TABLE OF TY_PARAMETER WITH KEY RENAME_TO.
+
+    TYPES: BEGIN OF TY_SIGNATURE,
+             ADDITIONAL_PARAMETERS TYPE STRING,
+             PARAMETERS            TYPE STANDARD TABLE OF TY_PARAMETER WITH DEFAULT KEY,
+           END OF TY_SIGNATURE.
+
+    TYPES: BEGIN OF TY_TRANSACTION,
+             CODE TYPE STRING,
+           END OF TY_TRANSACTION.
+
+    TYPES: BEGIN OF TY_TILE_CONFIGURATION,
+             SEMANTIC_OBJECT     TYPE STRING,
+             SEMANTIC_ACTION     TYPE STRING,
+             NAVIGATION_PROVIDER TYPE STRING,
+             DISPLAY_TITLE_TEXT  TYPE STRING,
+             MAPPING_SIGNATURE   TYPE STRING,
+             SIGNATURE           TYPE TY_SIGNATURE,  " Nested Structure / 파라미터 값이 안들어옴 확인 필요
+             URL                 TYPE STRING,
+             TRANSACTION         TYPE TY_TRANSACTION,
+           END OF TY_TILE_CONFIGURATION.
+
+    DATA : LS_CONVDATA TYPE TY_TILE_CONFIGURATION.
+
+**********************************************************************
+*-- TEMP
+    DATA : LV_MAPPING_SIG TYPE STRING,
+           LT_SPLIT       TYPE TABLE OF STRING,
+           LV_PARAMURL    TYPE STRING.
+**********************************************************************
+*-- 필드명 매핑
+*    DATA: LT_MAPPING  TYPE /UI2/CL_JSON=>NAME_MAPPINGS.
+*    LT_MAPPING = VALUE #(
+*    ( ABAP = 'TILECONFIGURATION' JSON = 'tileConfiguration' )
+*    ( ABAP = 'SEMANTIC_OBJECT' JSON = 'semantic_object' )
+*    ( ABAP = 'SEMANTIC_ACTION' JSON = 'semantic_action' )
+*    ).
+
+**********************************************************************
+    LT_PROCESSDATA = CORRESPONDING #( IT_ORIGINAL_DATA ).
 *
-*    LT_PROCESSDATA = CORRESPONDING #( IT_ORIGINAL_DATA ).
+    LOOP AT LT_PROCESSDATA ASSIGNING FIELD-SYMBOL(<FS_RESULT>).
+*-- Configuration
+      IF  <FS_RESULT>-ChipConf IS NOT INITIAL.
+        LV_RESULTCHIP = <FS_RESULT>-ChipConf.
+
+      ELSEIF  <FS_RESULT>-ChipConf IS INITIAL.
+        LV_RESULTCHIP = <FS_RESULT>-ChipMConf.
+
+      ELSE.
+        LV_RESULTCHIP = <FS_RESULT>-ChipMConf.
+
+      ENDIF.
+
+*-- JSON to ABAP
+      /UI2/CL_JSON=>DESERIALIZE(
+          EXPORTING
+              JSON = LV_RESULTCHIP
+          CHANGING
+              DATA = LS_TILECONF ).
+
+      LV_JSON = LS_TILECONF-TILECONFIGURATION.
+
+      /UI2/CL_JSON=>DESERIALIZE(
+          EXPORTING
+              JSON = LV_JSON
+*              PRETTY_NAME = /UI2/CL_JSON=>PRETTY_MODE-CAMEL_CASE
+*              PRETTY_NAME = /UI2/CL_JSON=>PRETTY_MODE-LOW_CASE
+*              PRETTY_NAME = /UI2/CL_JSON=>PRETTY_MODE-NONE
+*              NAME_MAPPINGS = LT_MAPPING "Json 속성명이랑 받을 아밥필드 명으로된 데이터 선언"
+          CHANGING
+              DATA = LS_CONVDATA ).
+
+*-- Target Mapping
+      LV_PARAMURL = LS_CONVDATA-SEMANTIC_OBJECT && '-' && LS_CONVDATA-SEMANTIC_ACTION && '?'.
+
+*-- Parameter 추가
+      IF LS_CONVDATA-MAPPING_SIGNATURE IS NOT INITIAL.
+
+        LV_MAPPING_SIG = LS_CONVDATA-MAPPING_SIGNATURE.
+
+        REPLACE ALL OCCURRENCES OF '[' IN LV_MAPPING_SIG WITH ''.
+        REPLACE ALL OCCURRENCES OF ']' IN LV_MAPPING_SIG WITH ''.
+
+        SPLIT LV_MAPPING_SIG AT '&' INTO TABLE LT_SPLIT.
+
+        LOOP AT LT_SPLIT ASSIGNING FIELD-SYMBOL(<FS_SPLIT>).
+          IF <FS_SPLIT> IS INITIAL.
+            CONTINUE.
+          ENDIF.
+
+          LV_PARAMURL = LV_PARAMURL && '&' && <FS_SPLIT>.
+        ENDLOOP.
+      ENDIF.
+
+*-- Add ResultUrl
+      <FS_RESULT>-ResultUrl = LV_PARAMURL.
+
+      CLEAR : LV_RESULTCHIP, LS_TILECONF, LS_CONVDATA, LT_SPLIT, LV_PARAMURL.
+    ENDLOOP.
 *
-*    LOOP AT LT_PROCESSDATA ASSIGNING FIELD-SYMBOL(<FS_RESULT>).
-*      IF <FS_RESULT>-URL IS NOT INITIAL.
-**        SPLIT <FS_RESULT>-URL AT ':' INTO TABLE LT_SPLIT.
-**        IF LT_SPLIT IS NOT INITIAL.
-**          READ TABLE LT_SPLIT INTO DATA(LS_SPLIT) INDEX 2 .
-**          IF SY-SUBRC EQ 0.
-**            CLEAR : LT_SPLIT, LS_SPLIT.
-**            SPLIT LS_SPLIT AT '?' INTO TABLE LT_SPLIT.
-**            IF LT_SPLIT IS NOT INITIAL.
-**              READ TABLE LT_SPLIT INTO LS_SPLIT INDEX 1.
-**              IF SY-SUBRC EQ 0.
-**                <FS_RESULT>-Catal = LS_SPLIT.
-**              ENDIF.
-**            ENDIF.
-**          ENDIF.
-**        ENDIF.
-**        SPLIT <FS_RESULT>-URL AT '?' INTO TABLE LT_SPLIT.
-**        IF LT_SPLIT IS NOT INITIAL.
-**          READ TABLE LT_SPLIT INTO DATA(LS_SPLIT) INDEX 1.
-**          IF SY-SUBRC EQ 0.
-**            <FS_RESULT>-Catal = LS_SPLIT.
-**          ENDIF.
-**        ENDIF.
-**        SPLIT <FS_RESULT>-URL AT '?' INTO LS_SPLIT_01 LS_SPLIT_02.
-**        IF LS_SPLIT_01 IS NOT INITIAL.
-**            <FS_RESULT>-Catal = LS_SPLIT_01.
-**        ENDIF.
 *
-*        <FS_RESULT>-Catal = 'Test'.
-*      ENDIF.
-*
-**      MODIFY LT_PROCESSDATA FROM <FS_RESULT> TRANSPORTING Catal.
-*    ENDLOOP.
-*
-*
-*    CT_CALCULATED_DATA = CORRESPONDING #( LT_PROCESSDATA ).
+    CT_CALCULATED_DATA = CORRESPONDING #( LT_PROCESSDATA ).
 
   ENDMETHOD.
 
